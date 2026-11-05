@@ -9,13 +9,13 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.watchmap.redmiwatch5",
+      "deploymentTarget": "15.0",
       "infoPlist": {
         "UIBackgroundModes": [
-          "location",
-          "fetch"
+          "location"
         ],
         "NSLocationWhenInUseUsageDescription": "Ứng dụng cần quyền vị trí để dẫn đường và gửi thông báo ngã rẽ sang Redmi Watch 5.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ứng dụng cần quyền vị trí Luôn luôn (Always) để tiếp tục báo ngã rẽ sang đồng hồ Redmi Watch 5 ngay cả khi bạn khóa màn hình iPhone bỏ vào túi.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ứng dụng cần quyền vị trí Luôn luôn để tiếp tục báo ngã rẽ sang đồng hồ Redmi Watch 5 ngay cả khi bạn khóa màn hình iPhone bỏ vào túi.",
         "NSLocationAlwaysUsageDescription": "Ứng dụng cần quyền vị trí khi khóa màn hình để báo rẽ lên đồng hồ."
       }
     },
@@ -25,12 +25,6 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Cho phép WatchMap Nav truy cập vị trí luôn luôn để dẫn đường sang đồng hồ khi khóa màn hình.",
           "isIosBackgroundLocationEnabled": true
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "color": "#38bdf8"
         }
       ]
     ],
