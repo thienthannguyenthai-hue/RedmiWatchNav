@@ -24,6 +24,12 @@ jobs:
       - name: Generate native iOS project (Expo Prebuild)
         run: npx expo prebuild --platform ios --no-install
 
+      - name: Configure Xcode Node environment & strip APNs entitlements
+        working-directory: ios
+        run: |
+          echo "export NODE_BINARY=$(which node)" > .xcode.env.local
+          find . -name "*.entitlements" -exec /usr/libexec/PlistBuddy -c "Delete :aps-environment" {} \; || true
+
       - name: Install CocoaPods
         working-directory: ios
         run: pod install
@@ -43,6 +49,21 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
+
+      - name: Verify & Embed JS bundle if missing
+        run: |
+          APP_DIR=$(find ios/build/App.xcarchive/Products/Applications -name "*.app" | head -n 1)
+          if [ ! -f "$APP_DIR/main.jsbundle" ]; then
+            echo "main.jsbundle not found in $APP_DIR. Bundling now..."
+            npx react-native bundle \
+              --entry-file index.ts \
+              --platform ios \
+              --dev false \
+              --bundle-output "$APP_DIR/main.jsbundle" \
+              --assets-dest "$APP_DIR"
+          else
+            echo "main.jsbundle already exists in $APP_DIR."
+          fi
 
       - name: Package .app into Unsigned .ipa
         working-directory: ios
