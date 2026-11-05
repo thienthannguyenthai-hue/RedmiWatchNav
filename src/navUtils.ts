@@ -143,25 +143,86 @@ export function formatStepVietnamese(
 }
 
 /**
- * Parse a Google Maps URL or raw text to extract coordinates or place query.
- * Supports:
- * - Short links: https://maps.app.goo.gl/... or https://goo.gl/maps/...
- * - Standard links: https://www.google.com/maps/place/.../@10.7769,106.7009,17z
- * - Query links: https://maps.google.com/?q=10.7769,106.7009
- * - Direct coordinates: "10.7769, 106.7009"
+ * Parse DMS coordinates (e.g., 16°28'02.6"N 107°35'25.8"E)
+ */
+function parseDMS(input: string): Coordinate | null {
+  const dmsRegex =
+    /(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([NS])[\s,]+(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([EW])/i;
+  const match = input.match(dmsRegex);
+  if (!match) return null;
+
+  let lat =
+    parseFloat(match[1]) +
+    parseFloat(match[2]) / 60 +
+    parseFloat(match[3]) / 3600;
+  if (match[4].toUpperCase() === 'S') lat = -lat;
+
+  let lng =
+    parseFloat(match[5]) +
+    parseFloat(match[6]) / 60 +
+    parseFloat(match[7]) / 3600;
+  if (match[8].toUpperCase() === 'W') lng = -lng;
+
+  return { latitude: lat, longitude: lng };
+}
+
+/**
+ * Extract coordinates from any URL or HTML string
+ */
+function extractCoordinatesFromString(text: string): Coordinate | null {
+  // 1. !3dLAT!4dLNG
+  const pinMatch = text.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (pinMatch) {
+    return { latitude: parseFloat(pinMatch[1]), longitude: parseFloat(pinMatch[2]) };
+  }
+
+  // 2. /@lat,lng
+  const atMatch = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) {
+    return { latitude: parseFloat(atMatch[1]), longitude: parseFloat(atMatch[2]) };
+  }
+
+  // 3. ?q=lat,lng or destination=lat,lng or center=lat,lng
+  const queryMatch = text.match(
+    /[?&](?:q|destination|daddr|ll|center|query)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/i
+  );
+  if (queryMatch) {
+    return { latitude: parseFloat(queryMatch[1]), longitude: parseFloat(queryMatch[2]) };
+  }
+
+  // 4. [null,null,lat,lng] inside Google internal JS
+  const internalJsMatch = text.match(/\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/);
+  if (internalJsMatch) {
+    return { latitude: parseFloat(internalJsMatch[1]), longitude: parseFloat(internalJsMatch[2]) };
+  }
+
+  return null;
+}
+
+/**
+ * Parse Google Maps input: URLs, DMS, raw coordinates, or search queries
  */
 export async function parseGoogleMapsInput(
   input: string
 ): Promise<{ coordinate?: Coordinate; query?: string; label?: string }> {
   const trimmed = input.trim();
 
-  // 1. Check direct coordinate pair "lat, lng"
-  const directCoordMatch = trimmed.match(
-    /^(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/
+  // 1. Check DMS coordinates (e.g., 16°28'02.6"N 107°35'25.8"E)
+  const dms = parseDMS(trimmed);
+  if (dms) {
+    return {
+      coordinate: dms,
+      label: `${dms.latitude.toFixed(5)}, ${dms.longitude.toFixed(5)}`,
+    };
+  }
+
+  // 2. Check standard decimal coordinates "16.46740, 107.59050" anywhere in text
+  const decimalMatch = trimmed.match(
+    /(-?\d{1,2}\.\d{3,})\s*[,;\s]\s*(-?\d{1,3}\.\d{3,})/
   );
-  if (directCoordMatch) {
-    const lat = parseFloat(directCoordMatch[1]);
-    const lng = parseFloat(directCoordMatch[2]);
+  if (decimalMatch) {
+    const lat = parseFloat(decimalMatch[1]);
+    const lng = parseFloat(decimalMatch[2]);
     if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
       return {
         coordinate: { latitude: lat, longitude: lng },
@@ -170,105 +231,153 @@ export async function parseGoogleMapsInput(
     }
   }
 
-  let resolvedUrl = trimmed;
-
-  // 2. If it's a shortened URL (maps.app.goo.gl or goo.gl), resolve redirect
+  // 3. Check if input contains a URL
   const urlMatch = trimmed.match(/https?:\/\/[^\s]+/i);
   if (urlMatch) {
-    resolvedUrl = urlMatch[0];
-    if (
-      resolvedUrl.includes('goo.gl') ||
-      resolvedUrl.includes('maps.app.goo.gl')
-    ) {
+    let targetUrl = urlMatch[0];
+
+    // Try extracting coordinates directly from URL if already expanded
+    let directCoord = extractCoordinatesFromString(targetUrl);
+    if (directCoord) {
+      const nameMatch = targetUrl.match(/\/place\/([^/@?]+)/);
+      const label = nameMatch
+        ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' '))
+        : `${directCoord.latitude.toFixed(5)}, ${directCoord.longitude.toFixed(5)}`;
+      return { coordinate: directCoord, label };
+    }
+
+    // If it's a short link (maps.app.goo.gl or goo.gl/maps), resolve it
+    if (targetUrl.includes('goo.gl') || targetUrl.includes('maps.app.goo.gl')) {
       try {
-        const res = await fetch(resolvedUrl, { method: 'GET' });
-        if (res.url) {
-          resolvedUrl = res.url;
+        const res = await fetch(targetUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+          },
+        });
+
+        if (res.url && res.url !== targetUrl) {
+          const fromResUrl = extractCoordinatesFromString(res.url);
+          if (fromResUrl) {
+            const nameMatch = res.url.match(/\/place\/([^/@?]+)/);
+            const label = nameMatch
+              ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' '))
+              : `${fromResUrl.latitude.toFixed(5)}, ${fromResUrl.longitude.toFixed(5)}`;
+            return { coordinate: fromResUrl, label };
+          }
+        }
+
+        // Parse HTML body for redirect meta or embedded coordinates
+        const html = await res.text();
+        const fromHtml = extractCoordinatesFromString(html);
+        if (fromHtml) {
+          return {
+            coordinate: fromHtml,
+            label: `${fromHtml.latitude.toFixed(5)}, ${fromHtml.longitude.toFixed(5)}`,
+          };
+        }
+
+        // Try to find meta refresh URL
+        const metaMatch = html.match(/content="[^"]*url=([^"]+)"/i);
+        if (metaMatch) {
+          const redirectUrl = metaMatch[1];
+          const fromRedirect = extractCoordinatesFromString(redirectUrl);
+          if (fromRedirect) {
+            return {
+              coordinate: fromRedirect,
+              label: `${fromRedirect.latitude.toFixed(5)}, ${fromRedirect.longitude.toFixed(5)}`,
+            };
+          }
         }
       } catch {
-        // Fallback if fetch fails
+        // Fallback to text query if fetch fails
       }
     }
 
-    // Extract !3dLAT!4dLNG (exact pin coordinate in Google Maps URLs)
-    const pinMatch = resolvedUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-    if (pinMatch) {
-      const lat = parseFloat(pinMatch[1]);
-      const lng = parseFloat(pinMatch[2]);
-      const nameMatch = resolvedUrl.match(/\/place\/([^/@?]+)/);
-      const label = nameMatch
-        ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' '))
-        : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-      return { coordinate: { latitude: lat, longitude: lng }, label };
-    }
-
-    // Extract ?q=lat,lng or &ll=lat,lng or &destination=lat,lng
-    const paramCoordMatch = resolvedUrl.match(
-      /[?&](?:q|ll|destination|daddr|query)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/i
-    );
-    if (paramCoordMatch) {
-      const lat = parseFloat(paramCoordMatch[1]);
-      const lng = parseFloat(paramCoordMatch[2]);
-      return {
-        coordinate: { latitude: lat, longitude: lng },
-        label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-      };
-    }
-
-    // Extract /@lat,lng
-    const atCoordMatch = resolvedUrl.match(/\/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (atCoordMatch) {
-      const lat = parseFloat(atCoordMatch[1]);
-      const lng = parseFloat(atCoordMatch[2]);
-      const nameMatch = resolvedUrl.match(/\/place\/([^/@?]+)/);
-      const label = nameMatch
-        ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' '))
-        : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-      return { coordinate: { latitude: lat, longitude: lng }, label };
-    }
-
-    // Extract place name from /place/Name or ?q=Name
-    const placeNameMatch = resolvedUrl.match(/\/place\/([^/@?]+)/);
+    // Try extracting place name from URL
+    const placeNameMatch = targetUrl.match(/\/place\/([^/@?]+)/);
     if (placeNameMatch) {
-      const placeQuery = decodeURIComponent(
-        placeNameMatch[1].replace(/\+/g, ' ')
-      );
-      return { query: placeQuery, label: placeQuery };
-    }
-
-    const qParamMatch = resolvedUrl.match(/[?&](?:q|query|destination)=([^&]+)/i);
-    if (qParamMatch) {
-      const placeQuery = decodeURIComponent(qParamMatch[1].replace(/\+/g, ' '));
+      const placeQuery = decodeURIComponent(placeNameMatch[1].replace(/\+/g, ' '));
       return { query: placeQuery, label: placeQuery };
     }
   }
 
-  return { query: trimmed, label: trimmed };
+  // If no URL or coordinates found, treat as text search query (strip URLs if any)
+  const cleanQuery = trimmed.replace(/https?:\/\/[^\s]+/gi, '').trim();
+  return { query: cleanQuery || trimmed, label: cleanQuery || trimmed };
 }
 
 /**
- * Search places via OpenStreetMap Nominatim (Free, no API key required)
+ * Search places using Photon (Komoot) + OpenStreetMap Nominatim fallback
+ * Photon provides fuzzy matching, typo tolerance, and superior POI/street search for Vietnam.
  */
 export async function searchPlaces(query: string): Promise<PlaceSuggestion[]> {
-  if (!query.trim()) return [];
-  const encoded = encodeURIComponent(query.trim());
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&countrycodes=vn&limit=5&addressdetails=1`;
-  const res = await fetch(url, {
-    headers: {
-      'Accept-Language': 'vi,en',
-      'User-Agent': 'RedmiWatchNavApp/1.0',
-    },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.map((item: any) => ({
-    displayName: item.display_name,
-    shortName: item.name || item.display_name.split(',')[0],
-    coordinate: {
-      latitude: parseFloat(item.lat),
-      longitude: parseFloat(item.lon),
-    },
-  }));
+  const q = query.trim();
+  if (!q) return [];
+
+  // 1. Try Photon (fast, typo-tolerant, excellent for Vietnamese landmarks & streets)
+  try {
+    const encoded = encodeURIComponent(q);
+    const photonUrl = `https://photon.komoot.io/api/?q=${encoded}&limit=6&lang=vi`;
+    const res = await fetch(photonUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.features && data.features.length > 0) {
+        return data.features.map((f: any) => {
+          const props = f.properties || {};
+          const name = props.name || props.street || q;
+          const details = [
+            props.housenumber,
+            props.street,
+            props.district,
+            props.city || props.state,
+            props.country,
+          ]
+            .filter(Boolean)
+            .join(', ');
+
+          return {
+            shortName: name,
+            displayName: details ? `${name} (${details})` : name,
+            coordinate: {
+              latitude: f.geometry.coordinates[1],
+              longitude: f.geometry.coordinates[0],
+            },
+          };
+        });
+      }
+    }
+  } catch {
+    // Fallback to Nominatim
+  }
+
+  // 2. Fallback to Nominatim OSM
+  try {
+    const encoded = encodeURIComponent(q);
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&countrycodes=vn&limit=5&addressdetails=1`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept-Language': 'vi,en',
+        'User-Agent': 'RedmiWatchNavApp/1.0',
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.map((item: any) => ({
+        displayName: item.display_name,
+        shortName: item.name || item.display_name.split(',')[0],
+        coordinate: {
+          latitude: parseFloat(item.lat),
+          longitude: parseFloat(item.lon),
+        },
+      }));
+    }
+  } catch {
+    // ignore
+  }
+
+  return [];
 }
 
 /**

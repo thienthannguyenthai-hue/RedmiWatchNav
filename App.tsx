@@ -425,6 +425,12 @@ export default function App() {
           style={styles.map}
           showsUserLocation
           followsUserLocation={isNavigating}
+          onPress={(e) => {
+            if (!isNavigating) {
+              const coord = e.nativeEvent.coordinate;
+              selectDestination('Điểm chọn trên bản đồ', coord);
+            }
+          }}
           initialRegion={{
             latitude: currentLocation?.latitude || 10.7769,
             longitude: currentLocation?.longitude || 106.7009,
@@ -447,6 +453,15 @@ export default function App() {
             />
           )}
         </MapView>
+
+        {/* Hint to tap anywhere on map */}
+        {!destination && !isNavigating && (
+          <View style={styles.mapHintBadge}>
+            <Text style={styles.mapHintBadgeText}>
+              👆 Chạm bất kỳ đâu trên bản đồ để chọn điểm đến
+            </Text>
+          </View>
+        )}
 
         {/* Active Turn Banner Overlay */}
         {destination && activeStep && (
@@ -686,6 +701,26 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapHintBadge: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  mapHintBadgeText: {
+    color: '#38bdf8',
+    fontSize: 12,
+    fontWeight: '700',
   },
   turnBanner: {
     position: 'absolute',
