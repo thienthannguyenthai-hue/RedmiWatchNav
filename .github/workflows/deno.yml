@@ -1,4 +1,4 @@
-name: Build Unsigned iOS IPA for Sideloadly
+name: Build Unsigned iOS IPA for Sideloadly (iOS 15.7+ Compatible)
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-unsigned-ipa:
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
       - name: Checkout repository
@@ -19,7 +19,9 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          rm -f package-lock.json
+          npm install --legacy-peer-deps
 
       - name: Generate native iOS project (Expo Prebuild)
         run: npx expo prebuild --platform ios --no-install
@@ -46,6 +48,7 @@ jobs:
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -archivePath "build/App.xcarchive" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
