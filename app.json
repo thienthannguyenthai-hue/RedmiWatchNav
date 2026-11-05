@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "WatchMap Nav",
+    "slug": "redmi-watch-nav",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.watchmap.redmiwatch5",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ],
+        "NSLocationWhenInUseUsageDescription": "Ứng dụng cần quyền vị trí để dẫn đường và gửi thông báo ngã rẽ sang Redmi Watch 5.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ứng dụng cần quyền vị trí Luôn luôn (Always) để tiếp tục báo ngã rẽ sang đồng hồ Redmi Watch 5 ngay cả khi bạn khóa màn hình iPhone bỏ vào túi.",
+        "NSLocationAlwaysUsageDescription": "Ứng dụng cần quyền vị trí khi khóa màn hình để báo rẽ lên đồng hồ."
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Cho phép WatchMap Nav truy cập vị trí luôn luôn để dẫn đường sang đồng hồ khi khóa màn hình.",
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#38bdf8"
+        }
+      ]
+    ],
+    "android": {
+      "package": "com.watchmap.redmiwatch5",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
