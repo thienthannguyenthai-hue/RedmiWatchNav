@@ -1,0 +1,84 @@
+name: Build Unsigned iOS IPA for Sideloadly (iOS 15.7+ Compatible)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          rm -f package-lock.json
+          npm install --legacy-peer-deps
+
+      - name: Generate native iOS project (Expo Prebuild)
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Configure Xcode Node environment & strip APNs entitlements
+        working-directory: ios
+        run: |
+          echo "export NODE_BINARY=$(which node)" > .xcode.env.local
+          find . -name "*.entitlements" -exec /usr/libexec/PlistBuddy -c "Delete :aps-environment" {} \; || true
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install
+
+      - name: Build Unsigned Xcode Archive
+        working-directory: ios
+        run: |
+          WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          xcodebuild archive \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/App.xcarchive" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Verify & Embed JS bundle if missing
+        run: |
+          APP_DIR=$(find ios/build/App.xcarchive/Products/Applications -name "*.app" | head -n 1)
+          if [ ! -f "$APP_DIR/main.jsbundle" ]; then
+            echo "main.jsbundle not found in $APP_DIR. Bundling now..."
+            npx react-native bundle \
+              --entry-file index.ts \
+              --platform ios \
+              --dev false \
+              --bundle-output "$APP_DIR/main.jsbundle" \
+              --assets-dest "$APP_DIR"
+          else
+            echo "main.jsbundle already exists in $APP_DIR."
+          fi
+
+      - name: Package .app into Unsigned .ipa
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R "build/App.xcarchive/Products/Applications/"*.app Payload/
+          zip -qr "../WatchMapNav-unsigned.ipa" Payload
+          rm -rf Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchMapNav-iOS-IPA
+          path: WatchMapNav-unsigned.ipa
+          retention-days: 7
